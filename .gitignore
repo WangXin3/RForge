@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# 虚拟环境
+.venv/
+venv/
+ENV/
+
+# 环境变量
+.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 上传文件
+uploads/
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 分发/打包
+dist/
+build/
+*.egg-info/
+*.egg
+
+# 日志
+*.log
