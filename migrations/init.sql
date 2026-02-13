@@ -22,15 +22,30 @@ CREATE TABLE IF NOT EXISTS document_chunks (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 考核记录表
-CREATE TABLE IF NOT EXISTS quiz_logs (
+-- 考核会话表
+CREATE TABLE IF NOT EXISTS quizzes (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id VARCHAR(50) NOT NULL,
-    question TEXT NOT NULL,
-    standard_answer TEXT,
-    user_answer TEXT,
-    score INT,
-    feedback TEXT
+    kb_ids JSONB NOT NULL,                          -- 选择的知识库 ID 列表
+    status VARCHAR(32) NOT NULL DEFAULT 'created',  -- created / in_progress / completed
+    total_score INT,
+    summary TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP
+);
+
+-- 考核题目表
+CREATE TABLE IF NOT EXISTS quiz_questions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    quiz_id UUID REFERENCES quizzes(id) ON DELETE CASCADE,
+    question_number INT NOT NULL,           -- 1~10
+    chunk_content TEXT NOT NULL,             -- 出题依据的原文片段
+    question TEXT NOT NULL,                  -- 题目
+    standard_answer TEXT NOT NULL,           -- 标准答案
+    user_answer TEXT,                        -- 用户作答
+    score INT,                              -- 单题得分 0~10
+    feedback TEXT,                           -- 单题反馈
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- 当数据量达到万级以上时，为 embedding 列创建 HNSW 索引以加速检索
