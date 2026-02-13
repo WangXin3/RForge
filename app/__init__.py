@@ -1,10 +1,12 @@
 import os
 
-from flask import Flask, jsonify
+from flask import Flask
 from flask_cors import CORS
+from werkzeug.exceptions import HTTPException
 
 from config import get_config
 from app.models.database import db
+from app.utils.api_response import error, success
 
 
 def create_app(config_class=None):
@@ -33,9 +35,18 @@ def create_app(config_class=None):
     app.register_blueprint(chat_bp)
     app.register_blueprint(quiz_bp)
 
+    @app.errorhandler(HTTPException)
+    def handle_http_exception(exc):
+        return error(message=exc.description, code=exc.code or 500)
+
+    @app.errorhandler(Exception)
+    def handle_unexpected_exception(exc):
+        app.logger.exception("未处理异常: %s", exc)
+        return error(message="服务器内部错误", code=500)
+
     # 健康检查端点
     @app.route("/health", methods=["GET"])
     def health_check():
-        return jsonify({"status": "ok", "message": "RAG 知识问答与考核系统运行中"}), 200
+        return success(message="RAG 知识问答与考核系统运行中", data={"status": "ok"})
 
     return app

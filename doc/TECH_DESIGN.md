@@ -126,3 +126,27 @@ CREATE INDEX ON document_chunks USING hnsw (embedding vector_cosine_ops);
 
 * 冷启动问题： 在考核模式下，系统随机抽取的片段可能不适合出题（例如只是目录）。建议在出题 Prompt 中加入一个判断逻辑：“如果此片段信息不足以出题，请返回 SKIP”。
 
+## 6. 统一返回结构约定
+
+* 适用范围：所有非流式 JSON 接口。
+* 统一结构：
+```json
+{
+  "code": 200,
+  "message": "成功",
+  "data": {}
+}
+```
+* 字段说明：
+  * `code`：状态码，默认与 HTTP 状态码保持一致。
+  * `message`：提示信息。
+  * `data`：业务数据载荷，可为对象、数组或 `null`。
+* 失败示例：
+```json
+{
+  "code": 400,
+  "message": "缺少 query 参数",
+  "data": null
+}
+```
+* 流式接口例外：`POST /v1/chat/completions` 在 `stream=true` 时继续使用 SSE（`text/event-stream`），不套用 `code/message/data` 包装。

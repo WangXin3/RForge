@@ -1,8 +1,9 @@
 import json
 
-from flask import Blueprint, request, jsonify, Response, stream_with_context
+from flask import Blueprint, request, Response, stream_with_context
 
 from app.services.retrieval import RetrievalService
+from app.utils.api_response import error, success
 
 chat_bp = Blueprint("chat", __name__)
 
@@ -16,46 +17,44 @@ def chat_completions():
     data = request.get_json()
 
     if not data or "query" not in data:
-        return jsonify({"error": "缺少 query 参数"}), 400
+        return error(message="缺少 query 参数")
 
     query = str(data["query"]).strip()
     if not query:
-        return jsonify({"error": "query 不能为空"}), 400
+        return error(message="query 不能为空")
 
     kb_ids = data.get("kb_ids", [])
     if kb_ids is None:
         kb_ids = []
     if not isinstance(kb_ids, list):
-        return jsonify({"error": "kb_ids 必须是数组"}), 400
+        return error(message="kb_ids 必须是数组")
 
     top_k = data.get("top_k", 5)
     try:
         top_k = int(top_k)
     except (TypeError, ValueError):
-        return jsonify({"error": "top_k 必须是整数"}), 400
+        return error(message="top_k 必须是整数")
     if top_k < 1 or top_k > 20:
-        return jsonify({"error": "top_k 必须在 1-20 之间"}), 400
+        return error(message="top_k 必须在 1-20 之间")
 
     stream = data.get("stream", True)
     if not isinstance(stream, bool):
-        return jsonify({"error": "stream 必须是布尔值"}), 400
+        return error(message="stream 必须是布尔值")
 
     try:
         service = RetrievalService()
 
         if not stream:
             result = service.query(query=query, kb_ids=kb_ids, top_k=top_k)
-            return (
-                jsonify(
-                    {
-                        "query": query,
-                        "kb_ids": kb_ids,
-                        "top_k": top_k,
-                        "answer": result["answer"],
-                        "references": result["references"],
-                    }
-                ),
-                200,
+            return success(
+                message="问答成功",
+                data={
+                    "query": query,
+                    "kb_ids": kb_ids,
+                    "top_k": top_k,
+                    "answer": result["answer"],
+                    "references": result["references"],
+                },
             )
 
         stream_result = service.stream_query(query=query, kb_ids=kb_ids, top_k=top_k)
@@ -87,4 +86,4 @@ def chat_completions():
         }
         return Response(event_stream(), mimetype="text/event-stream", headers=headers)
     except Exception as exc:
-        return jsonify({"error": f"问答失败: {str(exc)}"}), 500
+        return error(message=f"问答失败: {str(exc)}", code=500)
