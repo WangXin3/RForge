@@ -18,7 +18,12 @@ def create_quiz():
 
     用户选择多个知识库（公共 / 私有），创建一次考核会话。
 
-    请求体：{"user_id": "user1", "kb_ids": ["kb-1", "kb-2"]}
+    请求体：{
+        "user_id": "user1",
+        "kb_ids": ["kb-1", "kb-2"],
+        "question_count": 5,       // 可选，题目数量 1~20，默认 5
+        "difficulty": "easy"        // 可选，easy / medium / hard，默认 easy
+    }
     """
     data = request.get_json()
 
@@ -33,6 +38,21 @@ def create_quiz():
     if not kb_ids or not isinstance(kb_ids, list):
         return error(message="kb_ids 必须是非空数组")
 
+    # 可选参数：题目数量（默认 5，范围 1~20）
+    question_count = data.get("question_count", 5)
+    try:
+        question_count = int(question_count)
+    except (TypeError, ValueError):
+        return error(message="question_count 必须是整数")
+    if question_count < 1 or question_count > 20:
+        return error(message="question_count 必须在 1~20 之间")
+
+    # 可选参数：难度（默认 easy）
+    VALID_DIFFICULTIES = ("easy", "medium", "hard")
+    difficulty = data.get("difficulty", "easy")
+    if difficulty not in VALID_DIFFICULTIES:
+        return error(message=f"difficulty 必须是 {', '.join(VALID_DIFFICULTIES)} 之一")
+
     # 校验所有知识库存在且用户有权访问
     for kb_id in kb_ids:
         kb = KnowledgeBase.query.get(kb_id)
@@ -44,7 +64,12 @@ def create_quiz():
 
     try:
         service = QuizService()
-        quiz = service.create_quiz(user_id=user_id, kb_ids=kb_ids)
+        quiz = service.create_quiz(
+            user_id=user_id,
+            kb_ids=kb_ids,
+            question_count=question_count,
+            difficulty=difficulty,
+        )
         return success(message="考核创建成功", data=quiz.to_dict())
     except Exception as exc:
         return error(message=f"创建考核失败: {exc}", code=500)
@@ -57,7 +82,7 @@ def create_quiz():
 def start_quiz(quiz_id: str):
     """发起考核
 
-    系统后台生成 10 道题目，返回题目列表（不含标准答案）。
+    系统后台生成题目（数量由创建时设定），返回题目列表（不含标准答案）。
     """
     quiz = Quiz.query.get(quiz_id)
     if quiz is None:
@@ -78,7 +103,7 @@ def start_quiz(quiz_id: str):
             for q in questions
         ]
         return success(
-            message="考核已开始，共 10 道题目",
+            message=f"考核已开始，共 {len(questions)} 道题目",
             data={
                 "quiz_id": quiz.id,
                 "status": quiz.status,
@@ -138,13 +163,15 @@ def submit_answer(quiz_id: str, question_id: str):
 
 
 # ---------------------------------------------------------------------------
-# 接口 4：考核总结  GET /v1/quiz/<quiz_id>/summary  (SSE 流式)
+# 接口 4：考核总结  GET /v1/quiz/<quiz_id>/summary  (支持流式开关)
 # ---------------------------------------------------------------------------
 @quiz_bp.route("/v1/quiz/<quiz_id>/summary", methods=["GET"])
 def quiz_summary(quiz_id: str):
-    """考核总结（流式）
+    """考核总结（支持流式/非流式）
 
-    所有题目作答完毕后，计算总分并通过 SSE 流式返回综合评价。
+    所有题目作答完毕后，计算总分并生成综合评价。
+    - stream=true（默认）：SSE 流式返回
+    - stream=false：普通 JSON 返回
     """
     quiz = Quiz.query.get(quiz_id)
     if quiz is None:
@@ -156,6 +183,7 @@ def quiz_summary(quiz_id: str):
             message="考核已完成",
             data={
                 "quiz_id": quiz.id,
+                "status": quiz.status,
                 "total_score": quiz.total_score,
                 "summary": quiz.summary,
             },
@@ -173,6 +201,27 @@ def quiz_summary(quiz_id: str):
 
     service = QuizService()
     total_score = service.calculate_total_score(quiz)
+    stream_param = (request.args.get("stream", "true") or "").strip().lower()
+    use_stream = stream_param not in {"0", "false", "no", "off"}
+
+    # 非流式：直接生成总结并落库
+    if not use_stream:
+        try:
+            summary_text = service.generate_summary(quiz)
+            service.complete_quiz(quiz, total_score, summary_text)
+            return success(
+                message="考核已完成",
+                data={
+                    "quiz_id": quiz.id,
+                    "status": quiz.status,
+                    "total_score": quiz.total_score,
+                    "summary": quiz.summary,
+                },
+            )
+        except ValueError as exc:
+            return error(message=str(exc))
+        except Exception as exc:
+            return error(message=f"生成考核总结失败: {exc}", code=500)
 
     def to_sse(payload: dict) -> str:
         return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
@@ -186,17 +235,21 @@ def quiz_summary(quiz_id: str):
             "total_score": total_score,
         })
 
-        # 流式生成总结
         full_summary = []
-        for token in service.generate_summary_stream(quiz):
-            full_summary.append(token)
-            yield to_sse({"type": "delta", "content": token})
+        try:
+            # 流式生成总结
+            for token in service.generate_summary_stream(quiz):
+                full_summary.append(token)
+                yield to_sse({"type": "delta", "content": token})
 
-        # 持久化总结
-        summary_text = "".join(full_summary)
-        service.complete_quiz(quiz, total_score, summary_text)
-
-        yield to_sse({"type": "done"})
+            # 持久化总结（流式结束后）
+            summary_text = "".join(full_summary).strip()
+            if not summary_text:
+                summary_text = "本次考核已完成。"
+            service.complete_quiz(quiz, total_score, summary_text)
+            yield to_sse({"type": "done"})
+        except Exception as exc:
+            yield to_sse({"type": "error", "message": f"总结生成或保存失败: {exc}"})
 
     headers = {
         "Cache-Control": "no-cache",

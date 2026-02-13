@@ -7,7 +7,7 @@
 - [x] 知识文档增删改查以及调用指定模型将文本转向量化并存储
 - [x] 基于多知识库的问答
 - [x] 标准增删改查接口统一api字典返回
-- [x] 考核模式
+- [x] 考核模式，支持设定难度和题目数
 - [ ] 支持自定义模型提供商和模型
 - [ ] 用户管理/数据隔离
 - [ ] 前端界面
@@ -43,7 +43,15 @@
 
 ### 考核
 - `POST /v1/quiz`：创建考核  
-  请求体示例：`{"user_id":"user1","kb_ids":["kb-id-1","kb-id-2"]}`
+  请求体示例：
+  ```json lines
+  {
+          "user_id": "user1",
+          "kb_ids": ["kb-1", "kb-2"],
+          "question_count": 5,        // 可选，题目数量 1~20，默认 5
+          "difficulty": "easy"        // 可选，easy / medium / hard，默认 easy
+  }
+  ```
 - `POST /v1/quiz/<quiz_id>/start`：发起考核，系统生成 10 道题目  
   返回题目列表（不含标准答案）
 - `POST /v1/quiz/<quiz_id>/questions/<question_id>/submit`：提交单题答案  

@@ -102,6 +102,8 @@ class Quiz(db.Model):
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = db.Column(db.String(50), nullable=False)
     kb_ids = db.Column(db.JSON, nullable=False)  # 选择的知识库 ID 列表
+    question_count = db.Column(db.Integer, nullable=False, default=5)  # 题目数量，默认 5
+    difficulty = db.Column(db.String(16), nullable=False, default="easy")  # easy / medium / hard
     status = db.Column(db.String(32), nullable=False, default="created")  # created / in_progress / completed
     total_score = db.Column(db.Integer, nullable=True)
     summary = db.Column(db.Text, nullable=True)
@@ -121,6 +123,8 @@ class Quiz(db.Model):
             "id": self.id,
             "user_id": self.user_id,
             "kb_ids": self.kb_ids,
+            "question_count": self.question_count,
+            "difficulty": self.difficulty,
             "status": self.status,
             "total_score": self.total_score,
             "summary": self.summary,
@@ -180,6 +184,16 @@ def init_database() -> None:
             conn.execute(text("DROP TABLE IF EXISTS quiz_logs CASCADE"))
 
     db.create_all()
+
+    # 迁移：为 quizzes 表添加 question_count / difficulty 列
+    if "quizzes" in existing_tables:
+        quiz_columns = {col["name"] for col in inspector.get_columns("quizzes")}
+        if "question_count" not in quiz_columns:
+            with db.engine.begin() as conn:
+                conn.execute(text("ALTER TABLE quizzes ADD COLUMN question_count INT NOT NULL DEFAULT 5"))
+        if "difficulty" not in quiz_columns:
+            with db.engine.begin() as conn:
+                conn.execute(text("ALTER TABLE quizzes ADD COLUMN difficulty VARCHAR(16) NOT NULL DEFAULT 'easy'"))
 
     chunk_columns = {col["name"] for col in inspector.get_columns("document_chunks")}
     if "document_id" not in chunk_columns:
